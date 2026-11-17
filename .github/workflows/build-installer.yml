@@ -65,7 +65,7 @@ jobs:
         shell: pwsh
         run: |
           $destination = Join-Path $env:RUNNER_TEMP 'mgwin-source'
-          & tar.exe -xzf 'source/patches/fix-system-io.tar.gz' -C $destination
+          & tar.exe -xzf 'source/patches/fix-system-io.tar.gz' -C $env:MGWIN_ROOT
           if ($LASTEXITCODE -ne 0) { throw "Source overlay extraction failed with exit code $LASTEXITCODE" }
           $windowFile = Join-Path $env:MGWIN_ROOT 'src/MGWin.App/MainWindow.xaml.cs'
           $windowSource = [System.IO.File]::ReadAllText($windowFile)
