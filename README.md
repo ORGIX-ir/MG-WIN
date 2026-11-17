@@ -27,7 +27,7 @@ The run summary records the installer SHA-256 hash. A failed workflow is never t
 
 ## Source snapshot
 
-The reproducible source snapshot is stored under `source/archive/` in eight binary chunks. CI reassembles the chunks, verifies the complete archive SHA-256, and extracts it before any build step. The exact snapshot hash is `759b3eb822b9913ae9caf353e9875ff715ca5601f1d8fab4af2f293d43d6b575`.
+The reproducible source snapshot is stored under `source/archive/` in eight binary chunks. CI reassembles the chunks, verifies the complete archive SHA-256, and extracts it before any build step. The exact snapshot hash is `759b3eb822b9913ae9caf353e9875ff715ca5601f1d8fab4af2f293d43d6b575`. A small versioned WPF source overlay is applied after extraction before compilation.
 
 ## Tanha font
 

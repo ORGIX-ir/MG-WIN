@@ -61,6 +61,17 @@ jobs:
           "MGWIN_ROOT=$root" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "Source archive SHA-256 verified: $actual" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
 
+      - name: Apply validated WPF source overlay
+        shell: pwsh
+        run: |
+          $destination = Join-Path $env:RUNNER_TEMP 'mgwin-source'
+          & tar.exe -xzf 'source/patches/fix-system-io.tar.gz' -C $destination
+          if ($LASTEXITCODE -ne 0) { throw "Source overlay extraction failed with exit code $LASTEXITCODE" }
+          $windowFile = Join-Path $env:MGWIN_ROOT 'src/MGWin.App/MainWindow.xaml.cs'
+          $windowSource = [System.IO.File]::ReadAllText($windowFile)
+          if ($windowSource -notmatch '(?m)^using System\.IO;') { throw 'The WPF System.IO source overlay was not applied.' }
+          "WPF source overlay applied." | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+
       - name: Install .NET 10 SDK
         uses: actions/setup-dotnet@v4
         with:
