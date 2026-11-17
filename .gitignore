@@ -1,0 +1,9 @@
+*.user
+*.suo
+.vs/
+.vscode/
+bin/
+obj/
+publish/
+artifacts/
+installer/artifacts/
