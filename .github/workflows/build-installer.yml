@@ -153,6 +153,23 @@ jobs:
           "- Size: $((Get-Item -LiteralPath $setup).Length) bytes" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "- SHA-256: $setupHash" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
 
+      - name: Install and launch smoke test
+        shell: pwsh
+        run: |
+          $setup = Join-Path $env:MGWIN_ROOT 'installer/artifacts/MG-WIN-Setup.exe'
+          $install = Start-Process -FilePath $setup -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-') -PassThru -Wait
+          if ($install.ExitCode -ne 0) { throw "Silent installer exited with code $($install.ExitCode)" }
+
+          $installedExe = Join-Path $env:LOCALAPPDATA 'Programs/MG-WIN/MG-WIN.exe'
+          if (-not (Test-Path -LiteralPath $installedExe)) { throw "Installed app not found at $installedExe" }
+
+          $app = Start-Process -FilePath $installedExe -PassThru
+          Start-Sleep -Seconds 5
+          $app.Refresh()
+          if ($app.HasExited) { throw "MG-WIN exited during startup smoke test (exit code $($app.ExitCode))." }
+          Stop-Process -Id $app.Id -Force
+          "Installer completed and installed MG-WIN process stayed alive for 5 seconds." | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+
       - name: Upload installer only
         uses: actions/upload-artifact@v4
         with:
