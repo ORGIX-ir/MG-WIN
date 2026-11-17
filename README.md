@@ -1,36 +1,42 @@
 # MG-WIN Network Studio
 
-A native Windows 10/11 x64 network-health dashboard with a Persian RTL interface.
+Native Windows 10/11 x64 desktop application with a Persian right-to-left interface using the **Tanha** font.
 
-> **Scope:** this repository contains a read-only network monitor. It is not a VPN or proxy client and does not provide tunneling, server-profile import, routing/DNS changes, system proxy changes, firewall changes, or network-driver installation.
+## Current deliverable
 
-## Source package
+The Windows build workflow reconstructs a SHA-256-verified source snapshot, downloads the pinned Tanha TTF, runs the core smoke tests, builds the complete .NET 10 WPF solution, publishes a self-contained Windows x64 application, and compiles **MG-WIN-Setup.exe** with Inno Setup.
 
-The complete Visual Studio/WPF project, tests, build script, and Inno Setup definition are in **[MG-WIN-source.zip](source/MG-WIN-source.zip)**.
+**No Portable package is produced.** The installer is uploaded as the `MG-WIN-Setup` artifact of the GitHub Actions run and is retained for 14 days.
 
-## Features
+## Network monitor capabilities
 
-- Live ICMP latency sampling and a rolling latency chart.
-- Jitter and packet-loss estimates.
-- Network-interface inventory, local IPv4, default gateway, MAC address, and reported link speed.
-- Per-adapter upload/download rates and RX/TX totals.
-- Local gateway/public-target diagnostics, pause/resume, immediate test, and CSV log export.
-- Self-contained Windows x64 publish and per-user MG-WIN-Setup.exe installer. No Portable package.
+- Live ICMP latency samples, rolling latency chart, jitter estimate, and packet-loss estimate.
+- Network adapter inventory, IPv4 address, gateway, MAC address, and reported link speed.
+- Per-adapter download/upload rates and byte counters.
+- Basic connectivity diagnostics, manual ping, pause/resume, and CSV log export.
+- Persian RTL layout with embedded Tanha font.
 
-## Build locally
+## Build and retrieve the installer
 
-Extract the source archive on Windows, install .NET 10 SDK and Inno Setup 6 or later, open PowerShell in the extracted MG-WIN folder, then run:
+1. Open the **Actions** tab.
+2. Select **Build Windows Setup**.
+3. Open the latest successful run for the `main` branch.
+4. Download the `MG-WIN-Setup` artifact.
 
-```powershell
-.\build.ps1
-```
+The run summary records the installer SHA-256 hash. A failed workflow is never treated as a release.
 
-Output: installer\artifacts\MG-WIN-Setup.exe.
+## Source snapshot
 
-## CI installer
+The reproducible source snapshot is stored under `source/archive/` in eight binary chunks. CI reassembles the chunks, verifies the complete archive SHA-256, and extracts it before any build step. The exact snapshot hash is `759b3eb822b9913ae9caf353e9875ff715ca5601f1d8fab4af2f293d43d6b575`.
 
-The **Build Windows Setup** GitHub Actions workflow expands the source package, runs dependency-free core smoke tests, publishes the self-contained WPF application, compiles the Inno Setup installer, and uploads only MG-WIN-Setup.exe as a workflow artifact. Run it from the Actions tab or wait for it after a push to main.
+## Tanha font
 
-## Verification notice
+The WPF window uses Tanha for its Persian interface. The font is fetched at build time from the upstream repository at pinned commit `bd6f121ec33899e5b180c9fbdfff8e0b7bff8b55`; its license notice is included in the application source snapshot. CI checks the TTF signature and expected file size before compiling.
 
-The source archive and build pipeline are committed. The installer is not considered verified until a Windows Actions run succeeds and the produced installer is tested on a Windows 10/11 x64 system. The installer is not code-signed unless a valid signing certificate is deliberately added to a release process.
+## Scope and safety
+
+MG-WIN is a read-only network-health monitor. It does not create VPN/proxy tunnels, import proxy server profiles, alter Windows routes or DNS, change system proxy settings, install network drivers, or modify Windows Firewall.
+
+## Verification status
+
+Only a successful Windows Actions run producing a non-empty `MG-WIN-Setup.exe` artifact establishes that the current commit compiles and packages successfully. Runtime verification on an actual Windows 10/11 desktop is still recommended before general distribution. The installer is not code-signed.

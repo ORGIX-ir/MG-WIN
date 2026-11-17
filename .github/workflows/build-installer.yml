@@ -11,65 +11,136 @@ permissions:
   contents: read
 
 concurrency:
-  group: windows-setup-${{ github.ref }}
+  group: mgwin-windows-build-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  build:
+  windows-x64:
+    name: Compile, test and package Windows x64
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 35
+
     steps:
-      - name: Checkout source
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Expand complete source package
+      - name: Reassemble and verify complete source archive
         shell: pwsh
         run: |
-          $destination = Join-Path $env:RUNNER_TEMP 'mgwin-source'
-          Expand-Archive -LiteralPath 'source/MG-WIN-source.zip' -DestinationPath $destination -Force
-          $root = Join-Path $destination 'MG-WIN'
-          if (-not (Test-Path (Join-Path $root 'src/MGWin.App/MGWin.App.csproj'))) {
-            throw 'The source archive does not contain the expected WPF project.'
+          $parts = @(
+            'source/archive/part-01.bin',
+            'source/archive/part-02.bin',
+            'source/archive/part-03.bin',
+            'source/archive/part-04.bin',
+            'source/archive/part-05.bin',
+            'source/archive/part-06.bin',
+            'source/archive/part-07.bin',
+            'source/archive/part-08.bin'
+          )
+          $buffer = [System.Collections.Generic.List[byte]]::new()
+          foreach ($part in $parts) {
+            if (-not (Test-Path -LiteralPath $part)) { throw "Missing source archive part: $part" }
+            [byte[]]$bytes = [System.IO.File]::ReadAllBytes((Resolve-Path -LiteralPath $part))
+            $buffer.AddRange($bytes)
           }
+          $archivePath = Join-Path $env:RUNNER_TEMP 'MG-WIN-source.tar.gz'
+          [System.IO.File]::WriteAllBytes($archivePath, $buffer.ToArray())
+
+          $expected = '759b3eb822b9913ae9caf353e9875ff715ca5601f1d8fab4af2f293d43d6b575'
+          $actual = (Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actual -ne $expected) { throw "Source archive SHA-256 mismatch. Expected $expected; got $actual" }
+
+          $destination = Join-Path $env:RUNNER_TEMP 'mgwin-source'
+          New-Item -ItemType Directory -Force -Path $destination | Out-Null
+          & tar.exe -xzf $archivePath -C $destination
+          if ($LASTEXITCODE -ne 0) { throw "Source archive extraction failed with exit code $LASTEXITCODE" }
+
+          $root = Join-Path $destination 'MG-WIN'
+          $appProject = Join-Path $root 'src/MGWin.App/MGWin.App.csproj'
+          if (-not (Test-Path -LiteralPath $appProject)) { throw "Expected WPF project not found: $appProject" }
           "MGWIN_ROOT=$root" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "Source archive SHA-256 verified: $actual" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
 
       - name: Install .NET 10 SDK
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
 
-      - name: Run core smoke tests
-        shell: pwsh
-        run: dotnet run --project "$env:MGWIN_ROOT/tests/MGWin.SmokeTests/MGWin.SmokeTests.csproj" --configuration Release
-
-      - name: Publish self-contained Windows x64 app
+      - name: Download and validate Tanha Persian font
         shell: pwsh
         run: |
+          $fontPath = Join-Path $env:MGWIN_ROOT 'src/MGWin.App/Assets/Tanha.ttf'
+          $fontUrl = 'https://raw.githubusercontent.com/rastikerdar/tanha-font/bd6f121ec33899e5b180c9fbdfff8e0b7bff8b55/dist/Tanha.ttf'
+          Invoke-WebRequest -Uri $fontUrl -OutFile $fontPath
+          [byte[]]$font = [System.IO.File]::ReadAllBytes($fontPath)
+          $header = [BitConverter]::ToString($font[0..3])
+          if ($font.Length -ne 83560 -or $header -ne '00-01-00-00') {
+            throw "Tanha font failed validation (length=$($font.Length), header=$header)."
+          }
+          "Tanha TTF downloaded and validated (83,560 bytes; pinned upstream commit bd6f121ec33899e5b180c9fbdfff8e0b7bff8b55)." | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+
+      - name: Run core smoke tests
+        shell: pwsh
+        run: |
+          dotnet run --project "$env:MGWIN_ROOT/tests/MGWin.SmokeTests/MGWin.SmokeTests.csproj" --configuration Release
+          if ($LASTEXITCODE -ne 0) { throw "Core smoke tests failed with exit code $LASTEXITCODE" }
+
+      - name: Build full solution
+        shell: pwsh
+        run: |
+          dotnet build "$env:MGWIN_ROOT/MG-WIN.sln" --configuration Release
+          if ($LASTEXITCODE -ne 0) { throw "Solution build failed with exit code $LASTEXITCODE" }
+
+      - name: Publish self-contained Windows x64 application
+        shell: pwsh
+        run: |
+          $publish = Join-Path $env:MGWIN_ROOT 'publish/win-x64'
           dotnet publish "$env:MGWIN_ROOT/src/MGWin.App/MGWin.App.csproj" `
             --configuration Release `
             --runtime win-x64 `
             --self-contained true `
-            --output "$env:MGWIN_ROOT/publish/win-x64" `
+            --output $publish `
             -p:PublishSingleFile=true `
             -p:IncludeNativeLibrariesForSelfExtract=true `
             -p:DebugType=None `
             -p:DebugSymbols=false
+          if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed with exit code $LASTEXITCODE" }
+
+          $exe = Join-Path $publish 'MG-WIN.exe'
+          if (-not (Test-Path -LiteralPath $exe)) { throw 'Published MG-WIN.exe was not found.' }
+          if ((Get-Item -LiteralPath $exe).Length -lt 1000000) { throw 'Published application executable is unexpectedly small.' }
 
       - name: Install Inno Setup
         shell: pwsh
-        run: choco install innosetup --yes --no-progress
+        run: |
+          choco install innosetup --yes --no-progress
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup installation failed with exit code $LASTEXITCODE" }
 
-      - name: Compile installer
+      - name: Compile Setup.exe installer
         shell: pwsh
         run: |
-          $compiler = Get-ChildItem -Path 'C:\Program Files', 'C:\Program Files (x86)' -Filter 'ISCC.exe' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
+          $candidates = @(
+            'C:\Program Files (x86)\Inno Setup 6\ISCC.exe',
+            'C:\Program Files\Inno Setup 6\ISCC.exe',
+            'C:\Program Files (x86)\Inno Setup 7\ISCC.exe',
+            'C:\Program Files\Inno Setup 7\ISCC.exe'
+          )
+          $compiler = $candidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+          if (-not $compiler) {
+            $compiler = Get-ChildItem -Path 'C:\Program Files', 'C:\Program Files (x86)' -Filter 'ISCC.exe' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
+          }
           if (-not $compiler) { throw 'Inno Setup compiler (ISCC.exe) was not found.' }
-          & $compiler "$env:MGWIN_ROOT/installer/MG-WIN.iss"
-          if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed with exit code $LASTEXITCODE" }
-          $setup = "$env:MGWIN_ROOT/installer/artifacts/MG-WIN-Setup.exe"
-          if (-not (Test-Path $setup)) { throw 'Setup executable was not created.' }
-          $hash = (Get-FileHash -LiteralPath $setup -Algorithm SHA256).Hash
-          "SHA-256: $hash" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+
+          & $compiler (Join-Path $env:MGWIN_ROOT 'installer/MG-WIN.iss')
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup compilation failed with exit code $LASTEXITCODE" }
+
+          $setup = Join-Path $env:MGWIN_ROOT 'installer/artifacts/MG-WIN-Setup.exe'
+          if (-not (Test-Path -LiteralPath $setup)) { throw 'MG-WIN-Setup.exe was not created.' }
+          $setupHash = (Get-FileHash -LiteralPath $setup -Algorithm SHA256).Hash
+          "## Installer built successfully" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- File: MG-WIN-Setup.exe" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- Size: $((Get-Item -LiteralPath $setup).Length) bytes" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "- SHA-256: $setupHash" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
 
       - name: Upload installer only
         uses: actions/upload-artifact@v4
